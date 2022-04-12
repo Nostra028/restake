@@ -1,14 +1,11 @@
-import React, { useState } from 'react';
-
 import {
+  Dropdown,
   Button
 } from 'react-bootstrap'
 
 function RevokeRestake(props) {
-  const [loading, setLoading] = useState(false);
-
   function revoke(){
-    setLoading(true)
+    props.setLoading(true)
 
     const messages = [
       buildRevokeMsg("/cosmos.staking.v1beta1.MsgDelegate"),
@@ -18,11 +15,11 @@ function RevokeRestake(props) {
 
     props.stargateClient.signAndBroadcast(props.address, messages).then((result) => {
       console.log("Successfully broadcasted:", result);
-      setLoading(false)
+      props.setLoading(false)
       props.onRevoke(props.operator)
     }, (error) => {
       console.log('Failed to broadcast:', error)
-      setLoading(false)
+      props.setLoading(false)
       props.setError('Failed to broadcast: ' + error.message)
     })
   }
@@ -38,20 +35,18 @@ function RevokeRestake(props) {
     }
   }
 
+  if(props.button){
+    return (
+      <Button variant="danger" onClick={() => revoke()}>
+        Disable REStake
+      </Button>
+    )
+  }
+
   return (
-    <>
-      {!loading
-        ? (
-          <Button className="mr-5" onClick={() => revoke()} size={props.size} disabled={props.disabled} variant={props.variant}>
-            Revoke
-          </Button>
-        ) : (
-          <Button className="mr-5" disabled size={props.size} variant={props.variant}>
-            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>&nbsp;
-          </Button>
-        )
-      }
-    </>
+    <Dropdown.Item onClick={() => revoke()} >
+      Disable REStake
+    </Dropdown.Item>
   )
 }
 

@@ -1,8 +1,10 @@
+import _ from 'lodash'
 import React, { useEffect, useReducer } from 'react';
 import { useParams, useNavigate } from "react-router-dom";
 import Network from '../utils/Network.mjs'
-import { overrideNetworks } from '../utils/Helpers.mjs'
+import CosmosDirectory from '../utils/CosmosDirectory.mjs'
 import App from './App';
+import AlertMessage from './AlertMessage'
 
 import {
   Spinner
@@ -14,74 +16,102 @@ function NetworkFinder() {
   const params = useParams();
   const navigate = useNavigate()
 
+  const directory = CosmosDirectory()
+
   const [state, setState] = useReducer(
     (state, newState) => ({...state, ...newState}),
-    {loading: true, networks: [], operators: [], validators: []}
+    {loading: true, networks: {}, operators: [], validators: {}}
   )
 
-  const getNetworks = () => {
-    let data = networksData
-    return data.filter(el => el.enabled !== false).reduce((a, v) => ({ ...a, [v.name]: v}), {})
+  const getNetworks = async () => {
+    let registryNetworks
+    try {
+      registryNetworks = await directory.getChains()
+    } catch (error) {
+      setState({error: error.message, loading: false})
+      return {}
+    }
+
+    const networks = networksData.filter(el => el.enabled !== false).map(data => {
+      const registryData = registryNetworks[data.name] || {}
+      return {...registryData, ...data}
+    })
+    return _.compact(networks).reduce((a, v) => ({ ...a, [v.name]: v}), {})
   }
 
-  const changeNetwork = (network, validators) => {
-    const operators = Object.keys(validators).length ? network.getOperators(validators) : []
+  const changeNetwork = (network) => {
     setState({
       network: network,
-      validators: validators,
-      operators: operators
+      validators: network.getValidators(),
+      operators: network.getOperators()
     })
 
     navigate("/" + network.name);
   }
 
   useEffect(() => {
+    if(state.error) return
     if(!Object.keys(state.networks).length){
       setState({loading: true})
-      const networks = getNetworks()
-      setState({networks: networks})
+      getNetworks().then(networks => {
+        setState({networks: networks})
+      })
     }
   }, [state.networks])
 
   useEffect(() => {
     if(Object.keys(state.networks).length && !state.network){
-      const networkName = params.network || Object.keys(state.networks)[0]
-      const data = state.networks[networkName]
+      let networkName = params.network || Object.keys(state.networks)[0]
+      let data = state.networks[networkName]
       if(params.network && !data){
-        navigate("/" + Object.keys(state.networks)[0]);
+        networkName = Object.keys(state.networks)[0]
+        data = state.networks[networkName]
       }
       if(!data){
         setState({loading: false})
         return
       }
-      if(!params.network){
+      if(params.network != networkName){
         navigate("/" + networkName);
       }
       Network(data).then(network => {
-        setState({network: network})
+        if(network.connected){
+          setState({ network: network })
+        }else{
+          throw false
+        }
+      }).catch(error => {
+        Network(data, true).then(network => {
+          setState({ network: network, loading: false })
+        })
       })
     }
   }, [state.networks, state.network, params.network, navigate])
 
   useEffect(() => {
     if(state.error) return
-
+    if(!state.network || !state.network.connected) return
     if(state.network && (!Object.keys(state.validators).length)){
-      if(!state.network.restClient.connected){
-        return setState({
-          loading: false
-        })
-      }
-
-      state.network.getValidators().then(validators => {
-        setState({
-          validators,
-          operators: state.network.getOperators(validators),
-          loading: false
-        })
-      }, error => setState({loading: false, error: 'Unable to connect right now, try again'}))
+      setState({
+        validators: state.network.getValidators(),
+        operators: state.network.getOperators(),
+        loading: false
+      })
     }
   }, [state.network])
+
+  useEffect(() => {
+    const validatorAddresses = state.validators && Object.keys(state.validators)
+    if(validatorAddresses && validatorAddresses.includes(params.validator)){
+      setState({ validator: state.validators[params.validator] })
+    }else if(state.validator){
+      setState({ validator: null })
+    }
+  }, [state.validators, params.validator])
+
+  if (state.error) {
+    return <AlertMessage message={state.error} variant="danger" dismissible={false} />
+  }
 
   if (state.loading) {
     return (
@@ -93,18 +123,10 @@ function NetworkFinder() {
     )
   }
 
-  if (state.error) {
-    return (
-      <p>Loading failed</p>
-    )
-  }
-
-  if(!state.network){
-    return <p>Page not found</p>
-  }
-
-  return <App networks={state.networks} network={state.network} operators={state.operators} validators={state.validators}
-    changeNetwork={(network, validators) => changeNetwork(network, validators)} />;
+  return <App networks={state.networks} network={state.network}
+  operators={state.operators} validators={state.validators} validator={state.validator}
+  changeNetwork={(network, validators) => changeNetwork(network, validators)}
+  />;
 }
 
 export default NetworkFinder

@@ -1,7 +1,7 @@
 import React, { useState, useReducer, useEffect } from 'react';
 
+import CosmosDirectory from '../utils/CosmosDirectory.mjs';
 import Network from '../utils/Network.mjs'
-import ValidatorImage from './ValidatorImage'
 
 import {
   Button,
@@ -18,16 +18,18 @@ function NetworkSelect(props) {
   const [error, setError] = useState(false);
   const [selectedNetwork, setSelectedNetwork] = useState();
   const [validators, setValidators] = useState([]);
+  const [operatorCounts, setOperatorCounts] = useState({});
   const [options, setOptions] = useReducer(
     (state, newState) => ({...state, ...newState}),
     {networks: [], operators: [], network: {value: ''}}
   )
 
-  const {loadValidatorImages} = props
-
   const handleOpen = () => {
     setSelectedNetwork(props.network)
     setValidators(props.validators)
+    CosmosDirectory().getOperatorCounts().then(counts => {
+      setOperatorCounts(counts)
+    })
     setShow(true)
   }
 
@@ -55,39 +57,43 @@ function NetworkSelect(props) {
     const networks = Object.values(props.networks).sort((a, b) => a.name > b.name ? 1 : -1)
     setOptions({
       networks: networks.map(el => {
-        return {value: el.name, label: el.prettyName, image: el.image, operators: el.operators, authz: el.authzSupport}
+        return {
+          value: el.name, 
+          label: el.pretty_name, 
+          image: el.image,
+          operatorCount: el.operators?.length || operatorCounts[el.name], 
+          authz: el.authzSupport
+        }
       }),
       network: selectedNetwork && {
         value: selectedNetwork.name,
         label: selectedNetwork.prettyName,
-        image: selectedNetwork.data.image,
-        operators: selectedNetwork.data.operators,
+        image: selectedNetwork.image,
+        operatorCount: selectedNetwork.operators.length,
         authz: selectedNetwork.authzSupport
       }
     })
-  }, [props.networks, selectedNetwork])
+  }, [props.networks, selectedNetwork, operatorCounts])
 
   const selectNetwork = (newValue) => {
     const data = props.networks[newValue.value]
     if(data){
       setLoading(true)
       setError(false)
-      Network(data).then(network => {
+      Network(data, true).then(network => {
         setSelectedNetwork(network)
-        setValidators({})
-        if(network.connected){
-          network.getValidators().then(data => {
-            setValidators(data)
-            loadValidatorImages(network, data)
+        Network(data).then(network => {
+          if(network.connected){
+            setSelectedNetwork(network)
+            setValidators(network.getValidators())
             setLoading(false)
-          }).catch(error => {
-            setError('Unable to connect to this network currently. Try again later.')
-            setLoading(false)
-          })
-        }else{
+          }else{
+            throw false
+          }
+        }).catch(error => {
           setError('Unable to connect to this network currently. Try again later.')
           setLoading(false)
-        }
+        })
       })
     }
   }
@@ -96,7 +102,7 @@ function NetworkSelect(props) {
     <>
       <Button onClick={handleOpen} variant="link" className="d-flex align-items-center text-dark text-decoration-none border-secondary btn-outline-light" role="button">
         <div className="avatar avatar-sm rounded-circle text-white">
-          <img alt={props.network.prettyName} src={props.network.data.image} height={30} width={30} />
+          <img alt={props.network.prettyName} src={props.network.image} height={30} width={30} />
         </div>
         <div className="d-none d-sm-block ms-2">
           <span className="h6">{props.network.prettyName}</span>
@@ -136,8 +142,8 @@ function NetworkSelect(props) {
                         <span className="ms-1">{network.label}</span>
                       </div>
                       <div className="col text-end pt-1">
-                        {network.operators.length > 0 &&
-                        <small>{network.operators.length} Operator{network.operators.length > 1 ? 's' : ''}</small>
+                        {network.operatorCount > 0 &&
+                        <small>{network.operatorCount} Operator{network.operatorCount > 1 ? 's' : ''}</small>
                         }
                         {network.authz
                           ? <Badge className="ms-3 rounded-pill" bg="success">Authz</Badge>
@@ -155,7 +161,7 @@ function NetworkSelect(props) {
             {!error && !selectedNetwork.authzSupport &&
               <p><em>This network does not support Authz yet. You can manually stake and compound for now</em></p>
             }
-            {!error && selectedNetwork.authzSupport && selectedNetwork.getOperators(validators).length < 1 &&
+            {!error && selectedNetwork.authzSupport && selectedNetwork.operators.length < 1 &&
               <p><em>This network supports Authz but there are no operators just yet. You can manually REStake for now</em></p>
             }
             {!loading

@@ -1,15 +1,14 @@
 import React from 'react'
 import Coins from './Coins'
-
-import {
-  coin
-} from '@cosmjs/stargate'
+import { coin } from '../utils/Helpers.mjs'
 
 import {
   Button,
   Form,
   Alert
 } from 'react-bootstrap'
+
+import { pow, multiply, divide, subtract, bignumber } from 'mathjs'
 
 class DelegateForm extends React.Component {
   constructor(props) {
@@ -40,7 +39,10 @@ class DelegateForm extends React.Component {
     const memo = this.state.memo
     const client = this.props.stargateClient
 
-    let messages = this.buildMessages(amount)
+    const decimals = pow(10, this.props.network.decimals)
+    const denomAmount = bignumber(multiply(amount, decimals))
+
+    let messages = this.buildMessages(denomAmount)
     let gas
     try {
        gas = await client.simulate(this.props.address, messages)
@@ -70,7 +72,7 @@ class DelegateForm extends React.Component {
           delegatorAddress: address,
           validatorSrcAddress: this.props.validator.operator_address,
           validatorDstAddress: validatorAddress,
-          amount: coin(parseInt(parseFloat(amount) * 1000000), this.props.network.denom),
+          amount: coin(amount, this.props.network.denom)
         }
       })
     }else{
@@ -80,7 +82,7 @@ class DelegateForm extends React.Component {
         value: {
           delegatorAddress: address,
           validatorAddress: validatorAddress,
-          amount: coin(parseInt(parseFloat(amount) * 1000000), this.props.network.denom),
+          amount: coin(amount, this.props.network.denom)
         }
       })
     }
@@ -89,11 +91,12 @@ class DelegateForm extends React.Component {
 
   async setAvailableAmount(){
     this.setState({error: undefined})
-    const messages = this.buildMessages(parseInt(this.props.availableBalance.amount * 0.95) / 1_000_000.0)
+    const messages = this.buildMessages(multiply(this.props.availableBalance.amount, 0.95))
     this.props.stargateClient.simulate(this.props.address, messages).then(gas => {
       const saveTxFeeNum = (this.props.redelegate || this.props.undelegate) ? 0 : 10
       const gasPrice = this.props.stargateClient.getFee(gas).amount[0].amount
-      const amount = (this.props.availableBalance.amount - (gasPrice * saveTxFeeNum)) / 1_000_000.0
+      const decimals = pow(10, this.props.network.decimals || 6)
+      const amount = divide(subtract(this.props.availableBalance.amount, multiply(gasPrice, saveTxFeeNum)), decimals)
 
       this.setState({amount: amount > 0 ? amount : 0})
     }, error => {
@@ -108,7 +111,7 @@ class DelegateForm extends React.Component {
   }
 
   denom(){
-    return this.props.network.denom.slice(1).toUpperCase()
+    return this.props.network.symbol.toUpperCase()
   }
 
   render() {
@@ -129,7 +132,7 @@ class DelegateForm extends React.Component {
               </div>
               {this.props.availableBalance &&
               <div className="form-text text-end"><span role="button" onClick={() => this.setAvailableAmount()}>
-                Available: <Coins coins={this.props.availableBalance} />
+                Available: <Coins coins={this.props.availableBalance} decimals={this.props.network.decimals} />
               </span></div>
               }
             </div>
@@ -138,12 +141,14 @@ class DelegateForm extends React.Component {
             <Form.Label>Memo</Form.Label>
             <Form.Control name="memo" as="textarea" rows={3} value={this.state.memo} onChange={this.handleInputChange} />
           </Form.Group>
-          {!this.state.loading
-            ? <Button type="submit" className="btn btn-primary">{this.actionText()}</Button>
-            : <Button className="btn btn-primary" type="button" disabled>
-              <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>&nbsp;
-            </Button>
-          }
+          <p className="text-end">
+            {!this.state.loading
+              ? <Button type="submit" className="btn btn-primary">{this.actionText()}</Button>
+              : <Button className="btn btn-primary" type="button" disabled>
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>&nbsp;
+              </Button>
+            }
+          </p>
         </Form>
       </>
     )
